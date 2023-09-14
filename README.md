@@ -137,6 +137,65 @@ where order_cancel_details = 'nc'))b
 group by order_id
 
 
+-- for each customer , how many delivered rolls had at least 1 change and how many had no change ?
+
+with temp_customer_orders (order_id, customer_id, roll_id, not_include_items, extra_items_included, order_date) as
+( 
+select order_id , customer_id, roll_id , 
+case when not_include_items is null or not_include_items =' ' then '0' else not_include_items end as new_not_included_items,
+case when extra_items_included is null or extra_items_included =' ' or extra_items_included= 'NaN' or extra_items_included = 'Null' then '0'else extra_items_included end as new_extra_items_included,
+ order_date from customer_orders
+ )
+ select * from temp_customer_orders 
+
+ with temp_driver_order (order_id,driver_id,pickup_time,distance,duration,new_cancellation) as
+ (
+ select order_id ,driver_id , pickup_time, distance , duration,
+ case when cancellation in ('cancellation' , 'customer cancellation') then 0 else 1 end as new_cancellation
+ from driver_order
+ )
+
+ select  * , case when not_include_items = '0' and extra_items_included = '0' then 'no change' else 'change' end chg_no_chg 
+ from temp_customer_order where order_id in (  
+ select order_id from temp_driver_order where new_cancellation <> 0) a
+ group by chg
+
+
+ --what was the total number of rolls ordered for each hour of the day ?
+
+select 
+ hour_bucket , count(hour_bucket) total_number from 
+( select *,
+ concat( cast(datepart(hour , order_date ) as varchar ) ,'-' , cast(datepart(hour,order_date)+1 as varchar))  hour_bucket 
+ from customer_orders)a 
+ group by hour_bucket
+
+
+
+ --what was the number of orders for each day of the week 
+
+ select dow, count(distinct order_id) from 
+(select *, datename(dw, order_date) dow from customer_orders)a
+group by dow;
+
+
+--what was the average time in minutes it took for each driver to arrive at the fasoos HQ to pickup the order ?
+
+select driver_id ,
+sum (diff)/ count(order_id) avg_min from
+(select * from 
+(select * , row_number() over(partition by order_id order by diff) rnk from 
+(select a.order_id, a.customer_id , a.roll_id, a.not_include_items, a.roll_id , a.extra_items_included , a.order_date,
+b.driver_id, b.pickup_time, b.distance, b.duration, b.cancellation , datediff(minute, a.order_date,b.pickup_time) diff
+from customer_orders a 
+inner join driver_order b 
+on a.order_id = b.order_id
+where b.pickup_time is not null)a) b 
+where rnk = 1) c
+group by driver_id
+
+
+
 
 
 
